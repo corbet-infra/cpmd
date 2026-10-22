@@ -483,7 +483,25 @@ def cmd_s3(argv):
     return 0 if st in (200, 204) else 1
 
 
+def trim_log(path, keep=32 * 1024 * 1024, limit=64 * 1024 * 1024):
+    """Keep the unit log from growing without bound: above `limit` bytes keep the last `keep` bytes (in place, the
+    writer has the file open in append mode)."""
+    try:
+        size = os.path.getsize(path)
+        if size <= limit:
+            return
+        with open(path, "rb") as f:
+            f.seek(size - keep)
+            tail = f.read()
+        with open(path, "r+b") as f:
+            f.write(tail)
+            f.truncate(len(tail))
+    except OSError:
+        pass
+
+
 def cmd_quota(argv):
+    trim_log(os.path.join(COLD, "log", "rustfs.log"))
     name = os.environ.get("BOX_NAME") or read(os.path.join(COLD, "etc", "box-name")) or socket.gethostname().split(".")[0]
     doc = quota_doc(name)
     out = os.environ.get("QUOTA_OUT") or os.path.join(COLD, "status", "quota.json")
