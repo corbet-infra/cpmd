@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Debloat: remove what the shop's image starts and we do not want, inside the rules of an unprivileged account.
+# Provider-owned things stay: the panel (lighttpd + php-cgi), the pikkumies cron lines, /etc/cron.d/pmss (root).
+
+# Processes (matched by command name, regex) that are stopped by exact PID after the polite steps.
+debloat_stop_comm_regex: '^(dockerd|containerd|containerd-shim.*|rootlesskit|slirp4netns|deluged|deluge-web|qbittorrent-nox|transmission-daemon|rtorrent|rtorrent main|autobrr|sonarr|radarr|prowlarr|jellyfin|sabnzbd)$'
+# Processes matched by command line (the rootlesskit child shows up as `/proc/self/exe --state-dir=...dockerd-rootless`).
+debloat_stop_args_regex: 'dockerd-rootless|/run/user/[0-9]+/docker/containerd|rootlesskit'
+# Apps of the media stack; if any runs, ~/install-media-stack.sh --uninstall is run first.
+debloat_media_comm_regex: '^(jellyfin|sonarr|radarr|prowlarr|sabnzbd|qbittorrent-nox|transmission-daemon|autobrr|Sonarr|Radarr|Prowlarr|Jellyfin)$'
+debloat_media_uninstall: true
+# SIGKILL for processes that ignore SIGTERM for 20 s. Off: they are reported instead.
+debloat_sigkill: false
+# Marker file the shop's checkRtorrent cron honours (root cron /etc/cron.d/pmss, every 2 minutes).
+debloat_rtorrent_marker: .rtorrentDisable
+debloat_report_dir: "{{ facts_dir | default((inventory_dir | default(lookup('env', 'PWD'))) ~ '/../facts') }}/debloat"

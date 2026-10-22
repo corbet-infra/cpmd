@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+- name: Learn the account (user directory, uid)
+  ansible.builtin.setup:
+    gather_subset: [min]
+    filter: ansible_user_*
+  when: ansible_facts['user_dir'] is not defined
+
+- name: The admin key and its source list must be defined
+  ansible.builtin.assert:
+    that:
+      - harden_admin_pubkey | length > 0
+      - harden_admin_pubkey.split() | length >= 2
+      - harden_ssh_from | length > 0
+    fail_msg: "harden_admin_pubkey / harden_ssh_from are empty: the key has to exist first (see examples/)"
+    quiet: true
+
+- name: Home directory not group-writable (sshd StrictModes)
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}"
+    mode: "{{ harden_home_mode }}"
+
+- name: Private directories
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: "{{ harden_private_dirs }}"
+
+# ---- the single authorized key
+- name: Current authorized_keys
+  ansible.builtin.slurp:
+    src: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
+  register: harden_ak_now
+  failed_when: false
+
+- name: Keep a copy of keys that were there before (public keys only), once
+  ansible.builtin.copy:
+    content: "{{ harden_ak_now.content | b64decode }}"
+    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys.pre-crfs"
+    mode: "0600"
+    force: false
+  when:
+    - harden_ak_now.content is defined
+    - (harden_ak_now.content | b64decode | trim) != harden_ak_line | trim
+  vars: &akvars
+    harden_ak_line: 'from="{{ harden_ssh_from | join(",") }}",{{ harden_authorized_options }} {{ harden_admin_pubkey | trim }}'
+
+- name: authorized_keys holds exactly the admin key
+  ansible.builtin.copy:
+    content: "{{ harden_ak_line }}\n"
+    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
+    mode: "0600"
+  vars: *akvars
+
+# ---- umask for everything we create from a shell (the shop's .profile already says 077; its .bashrc sources .bashrc.user)
+- name: umask 077 in the customisation file the shop keeps out of its managed files
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_facts['user_dir'] }}/.bashrc.user"
+    create: true
+    mode: "0600"
+    marker: "# {mark} crfs hardening"
+    block: |
+      umask 077
+
+# ---- other-permission bits on our own trees
+- name: Files of ours readable or writable by others
+  ansible.builtin.shell: |
+    for t in {{ harden_tighten_trees | join(' ') }}; do
+      [ -e "$HOME/$t" ] && find "$HOME/$t" -user "$(id -un)" -not -type l -perm /o+rwx -print
+    done
+  register: harden_open
+  changed_when: false
+  check_mode: false
+
+- name: Remove the other bits there
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: o-rwx
+  loop: "{{ harden_open.stdout_lines }}"
+
+# ---- facts for the security sheet
+- name: Listening sockets of our processes
+  ansible.builtin.shell: |
+    ss -tlnpH 2>/dev/null | awk '/users:/ {print $4 " " $NF}'
+  register: harden_listen_raw
+  changed_when: false
+  check_mode: false
+
+- name: Classify listeners
+  ansible.builtin.set_fact:
+    harden_listeners: >-
+      {{ harden_listeners | default([]) + [{'addr': item.split()[0], 'proc': (item.split()[1] | regex_replace('^users:\(\("([^"]+)".*$', '\1'))}] }}
+  loop: "{{ harden_listen_raw.stdout_lines }}"
+
+- name: Unexpected listeners
+  ansible.builtin.set_fact:
+    harden_unexpected: "{{ (harden_listeners | default([])) | rejectattr('proc', 'in', harden_allowed_listener_comms) | list }}"
+
+- name: Fingerprints of the installed keys
+  ansible.builtin.command:
+    argv: [ssh-keygen, -lf, "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"]
+  register: harden_ak_fp
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Modes
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['user_dir'] }}/{{ item }}"
+  loop: ["", .ssh, .ssh/authorized_keys, cold, .config/systemd, .bashrc.user]
+  register: harden_stats
+
+- name: World-readable files in the home directory root (provider-owned, reported only)
+  ansible.builtin.shell: find "$HOME" -maxdepth 1 -type f -perm /o+r -printf '%u %m %f\n' | sort
+  register: harden_home_open
+  changed_when: false
+  check_mode: false
+
+- name: Security fact sheet (modes, fingerprints, listeners; no secrets)
+  ansible.builtin.set_fact:
+    harden_sheet:
+      box: "{{ inventory_hostname }}"
+      authorized_keys_fingerprints: "{{ harden_ak_fp.stdout_lines }}"
+      authorized_keys_from: "{{ harden_ssh_from }}"
+      authorized_keys_options: "{{ harden_authorized_options }}"
+      modes: "{{ harden_stats.results | map(attribute='stat') | selectattr('exists') | map(attribute='path') | zip(harden_stats.results | map(attribute='stat') | selectattr('exists') | map(attribute='mode')) | map('join', ' ') | list }}"
+      listeners: "{{ harden_listeners | default([]) }}"
+      listeners_unexpected: "{{ harden_unexpected }}"
+      other_bits_removed_from: "{{ harden_open.stdout_lines | length }} files"
+      home_root_files_readable_by_others_provider_owned: "{{ harden_home_open.stdout_lines }}"
+      sshd: "password login is the shop's setting and stays (re-bootstrap path); key login restricted by from= and no-* options"
+
+- name: Write the sheet on the controller
+  ansible.builtin.copy:
+    content: "{{ harden_sheet | to_nice_json(indent=1, sort_keys=true) }}\n"
+    dest: "{{ harden_report_dir }}/{{ inventory_hostname }}.json"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  diff: false
+
+- name: Summary
+  ansible.builtin.debug:
+    msg: "{{ harden_sheet | dict2items | rejectattr('key', 'equalto', 'home_root_files_readable_by_others_provider_owned') | items2dict }}"
+
+- name: Nothing may listen except our S3 port and the shop's services
+  ansible.builtin.fail:
+    msg: "unexpected listeners: {{ harden_unexpected }}"
+  when: harden_fail_on_unexpected_listener and harden_unexpected | length > 0

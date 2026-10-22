@@ -1,0 +1,152 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+- name: Learn the account (user directory, uid)
+  ansible.builtin.setup:
+    gather_subset: [min]
+    filter: ansible_user_*
+  when: ansible_facts['user_dir'] is not defined
+
+- name: Remember whether this is a check run (per-task check_mode overrides hide the variable)
+  ansible.builtin.set_fact:
+    debloat_is_check: "{{ ansible_check_mode }}"
+
+- name: Processes of the account before
+  ansible.builtin.script:
+    cmd: own-procs.py list
+  register: debloat_before_raw
+  changed_when: false
+  check_mode: false
+
+- name: Memory of the account (cgroup v1 usage and limit)
+  ansible.builtin.shell: |
+    d=/sys/fs/cgroup/memory/user.slice/user-{{ ansible_facts['user_uid'] }}.slice
+    echo "$(cat $d/memory.usage_in_bytes) $(cat $d/memory.limit_in_bytes)"
+  register: debloat_mem_before
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+# ---- rtorrent: the marker keeps the shop's cron from starting it again; the screen session is asked to quit
+- name: rtorrent marker (the shop's checkRtorrent cron honours it)
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}/{{ debloat_rtorrent_marker }}"
+    state: touch
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+
+- name: rtorrent screen sessions
+  ansible.builtin.shell: screen -ls 2>/dev/null | awk '/[0-9]+\.rtorrent/ {print $1}'
+  register: debloat_screens
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Ask the rtorrent screen sessions to quit
+  ansible.builtin.command:
+    argv: [screen, -S, "{{ item }}", -X, quit]
+  loop: "{{ debloat_screens.stdout_lines }}"
+  changed_when: true
+
+# ---- media stack
+- name: Media stack apps running
+  ansible.builtin.set_fact:
+    debloat_media_running: "{{ (debloat_before_raw.stdout | from_json).procs | selectattr('comm', 'match', debloat_media_comm_regex) | map(attribute='comm') | unique | list }}"
+
+- name: Does the uninstaller exist
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['user_dir'] }}/install-media-stack.sh"
+  register: debloat_media_script
+
+- name: Uninstall the media stack (only when one of its apps still runs)
+  ansible.builtin.command:
+    argv: ["{{ ansible_facts['user_dir'] }}/install-media-stack.sh", --uninstall]
+  when: debloat_media_uninstall and debloat_media_running | length > 0 and debloat_media_script.stat.exists
+  changed_when: true
+
+# ---- docker user service, then every leftover process by exact PID
+- name: Is there a rootless docker user unit
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/docker.service"
+  register: debloat_docker_unit
+
+- name: Docker user service stopped and not enabled
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: false
+    state: stopped
+    scope: user
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['user_uid'] }}"
+  when: debloat_docker_unit.stat.exists
+
+- name: Stop what is left, by exact PID after checking uid and command line
+  ansible.builtin.script:
+    cmd: >-
+      own-procs.py stop {{ '--dry-run' if debloat_is_check | bool else '' }} {{ '--kill' if debloat_sigkill else '' }}
+      --match 'comm={{ debloat_stop_comm_regex }}' --match 'args={{ debloat_stop_args_regex }}'
+  register: debloat_stop_raw
+  changed_when: (debloat_stop_raw.stdout | from_json).matched | length > 0
+  check_mode: false
+
+- name: Processes of the account after
+  ansible.builtin.script:
+    cmd: own-procs.py list
+  register: debloat_after_raw
+  changed_when: false
+  check_mode: false
+
+- name: What the provider's own cron may start again
+  ansible.builtin.slurp:
+    src: "{{ ansible_facts['user_dir'] }}/.config/pmss-user.json"
+  register: debloat_pmss
+  failed_when: false
+
+- name: Memory of the account after
+  ansible.builtin.shell: |
+    d=/sys/fs/cgroup/memory/user.slice/user-{{ ansible_facts['user_uid'] }}.slice
+    echo "$(cat $d/memory.usage_in_bytes) $(cat $d/memory.limit_in_bytes)"
+  register: debloat_mem_after
+  changed_when: false
+  check_mode: false
+  failed_when: false
+
+- name: Report
+  ansible.builtin.set_fact:
+    debloat_report:
+      box: "{{ inventory_hostname }}"
+      rss_before_mib: "{{ ((debloat_before_raw.stdout | from_json).rss_kib_sum / 1024) | round | int }}"
+      rss_after_mib: "{{ ((debloat_after_raw.stdout | from_json).rss_kib_sum / 1024) | round | int }}"
+      cgroup_before_mib: "{{ (debloat_mem_before.stdout.split()[0] | int / 1048576) | round | int }}"
+      cgroup_after_mib: "{{ (debloat_mem_after.stdout.split()[0] | int / 1048576) | round | int }}"
+      cgroup_limit_mib: "{{ (debloat_mem_after.stdout.split()[1] | int / 1048576) | round | int }}"
+      stopped: "{{ (debloat_stop_raw.stdout | from_json).matched | map(attribute='comm') | list }}"
+      survivors: "{{ (debloat_stop_raw.stdout | from_json).survivors }}"
+      media_apps_were_running: "{{ debloat_media_running }}"
+      rtorrent_screens_quit: "{{ debloat_screens.stdout_lines }}"
+      provider_docker_enabled: "{{ (debloat_pmss.content | b64decode | from_json).dockerEnabled | default(none) if debloat_pmss.content is defined else none }}"
+      # The shop restarts a stopped rootless docker for every account with dockerEnabled=true: root cron
+      # /etc/cron.d/pmss runs checkRootlessDocker.php every 5 minutes. Only the shop's panel or support can switch it off.
+      provider_owned_starters:
+        - "root cron checkRootlessDocker.php (every 5 min) restarts dockerd while dockerEnabled is true in the account config"
+        - "root cron checkRtorrent.php (every 2 min) honours ~/{{ debloat_rtorrent_marker }} (ours)"
+        - "user cron pikkumies cron-tick / update (provider agent, kept)"
+
+- name: Write the report on the controller
+  ansible.builtin.copy:
+    content: "{{ debloat_report | to_nice_json(indent=1, sort_keys=true) }}\n"
+    dest: "{{ debloat_report_dir }}/{{ inventory_hostname }}.json"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  diff: false
+
+- name: Summary
+  ansible.builtin.debug:
+    msg: "{{ debloat_report }}"
+
+- name: Leftover processes that did not stop
+  ansible.builtin.fail:
+    msg: "survivors after SIGTERM (set debloat_sigkill=true to force): {{ debloat_report.survivors }}"
+  when: debloat_report.survivors | length > 0

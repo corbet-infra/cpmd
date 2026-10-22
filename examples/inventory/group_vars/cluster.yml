@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# One distributed erasure set over every member of this group: 10 accounts, one drive each, EC:2 => 8+2.
+rustfs_cluster_group: cluster
+rustfs_storage_class_standard: "EC:2"

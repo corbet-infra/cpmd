@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Hosts come from sops files; no password ever appears here or in `ansible-inventory --list`.
+plugin: corbet.crfs.sops_accounts
+known_hosts: ../known_hosts          # filled by tools/scan-hostkeys; connections use StrictHostKeyChecking=yes
+auth: password                       # bootstrap; switch to `key` (or export CRFS_AUTH=key) after the admin key is installed
+sources:
+  - file: /path/to/accounts.sops.yml   # decrypts to: accounts: [{host: ..., ssh_user: ..., ssh_password: ...}, ...]
+    list_key: accounts
+    prefix: node                       # node01, node02, ...
+    group: cluster
+  - file: /path/to/playground.sops.yml # decrypts to: host, ssh_user, ssh_password
+    name: playground
+    group: testbox
+admin_key:
+  file: /path/to/admin-key.sops.yml    # decrypts to: admin_ssh_key: <OpenSSH private key>
+  key: admin_ssh_key

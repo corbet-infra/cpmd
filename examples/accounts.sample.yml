@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+# Structure of the sops file behind a list source. Encrypt a copy of this with `sops --encrypt`; never commit
+# the plain file. All values below are documentation examples.
+accounts:
+  - host: account1.example.com
+    ssh_user: demo
+    ssh_password: change-me
+    service_id: "1001"            # any other plain fields are kept in the host variable crfs_attrs
+  - host: account2.example.com
+    ssh_user: demo
+    ssh_password: change-me

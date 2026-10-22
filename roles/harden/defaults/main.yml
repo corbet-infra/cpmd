@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Harden one unprivileged account. sshd itself is the shop's (password login stays on, which is also the
+# re-bootstrap path); what we control is the account: modes, keys, umask, what listens.
+harden_home_mode: "0750"       # the shop ships 0770 (group-writable): sshd StrictModes would refuse key logins
+harden_private_dirs: [.ssh, cold, .config/systemd]   # created/kept 0700 when present or required
+# The ONE key that may log in. from= restricts the source address; the three no-* options remove forwarding.
+harden_admin_pubkey: ""      # the public key (one line) that may log in
+harden_ssh_from: []          # source addresses/CIDRs for from="..."
+harden_authorized_options: no-agent-forwarding,no-X11-forwarding,no-port-forwarding
+# Listening sockets of OUR processes that are expected (command names). Anything else is a finding.
+harden_allowed_listener_comms: [lighttpd, rustfs, versitygw]
+harden_fail_on_unexpected_listener: true
+# Trees in which every file of ours loses its "other" permission bits.
+harden_tighten_trees: [cold, .ssh, .config]
+harden_report_dir: "{{ facts_dir | default((inventory_dir | default(lookup('env', 'PWD'))) ~ '/../facts') }}/security"

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# facts + debloat + harden, one account at a time (serial 1) so that a failure stops the run on the first account.
+#   ansible-playbook corbet.crfs.bootstrap -e target=playground            (a test account first)
+#   ansible-playbook corbet.crfs.bootstrap -e target=node01 [--check --diff]
+- name: Bootstrap accounts
+  hosts: "{{ target | mandatory }}"
+  gather_facts: false
+  serial: 1
+  roles:
+    - role: corbet.crfs.facts
+    - role: corbet.crfs.debloat
+    - role: corbet.crfs.harden

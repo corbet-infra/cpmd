@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: LGPL-3.0-or-later
+# Pin the ed25519 host keys of the inventory hosts in a known_hosts file.
+#   scan-hostkeys <known_hosts file>        (run from the directory of ansible.cfg)
+# First contact is trust-on-first-use: compare with a second vantage point before relying on it. Existing
+# entries are never replaced; a changed key is an error to investigate, not to overwrite.
+set -eu
+kh=${1:?usage: scan-hostkeys <known_hosts file>}
+ansible-inventory --list 2>/dev/null | python3 -c '
+import json,sys
+inv=json.load(sys.stdin)
+for h,v in sorted(inv["_meta"]["hostvars"].items()):
+    u=lambda x: x["__ansible_unsafe"] if isinstance(x, dict) else x
+    print(h, u(v["ansible_host"]), u(v["crfs_label"]))' | while read alias ip name; do
+  if grep -q "^$ip[, ]" "$kh" 2>/dev/null; then echo "$alias: pinned"; continue; fi
+  line=$(ssh-keyscan -t ed25519 "$ip" 2>/dev/null | grep -v '^#' | head -1 | cut -d' ' -f2-)
+  [ -n "$line" ] || { echo "$alias: no key"; continue; }
+  echo "$ip,$name $line" >> "$kh"
+  echo "$alias: pinned $(echo "$line" | ssh-keygen -lf - | cut -d' ' -f2)"
+done

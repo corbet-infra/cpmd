@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# The box agent: one stdlib-python helper on the box (facts, quota, a minimal SigV4 client for smoke tests).
+- name: Learn the account (user directory, uid)
+  ansible.builtin.setup:
+    gather_subset: [min]
+    filter: ansible_user_*
+  when: ansible_facts['user_dir'] is not defined
+
+- name: Cold directory tree (private)
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}/cold{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: ["", /bin, /etc, /tls, /data, /status, /dl]
+
+- name: Box agent
+  ansible.builtin.copy:
+    src: crfs-agent.py
+    dest: "{{ ansible_facts['user_dir'] }}/cold/bin/crfs-agent"
+    mode: "0700"
