@@ -25,9 +25,12 @@ options:
   sources:
     description:
       - List of sources. Each is a dict with C(file) (absolute, or relative to the inventory file), C(group)
-        (inventory group), and for a list file C(list_key) and C(prefix) (hosts are named C(<prefix>01), ...),
-        for a single-account file C(name). Optional C(host_key), C(user_key), C(password_key) rename the keys
-        (defaults C(host), C(ssh_user), C(ssh_password)).
+        (inventory group), and for a list file C(list_key) and either C(prefix) (hosts are named C(<prefix>01), ...)
+        or C(name_format) (for example C(node-{i}), with C(index_start), default 0). Optional C(sort_by) names a field
+        of the entries and C(sort_regex) a regex whose first group is extracted from it; entries are numbered in
+        ascending order of that key (numeric when it is all digits), otherwise in file order. For a single-account
+        file give C(name). Optional C(host_key), C(user_key), C(password_key) rename the keys (defaults C(host),
+        C(ssh_user), C(ssh_password)).
     type: list
     elements: dict
     required: true
@@ -184,12 +187,24 @@ class InventoryModule(BaseInventoryPlugin):
             pwk = src.get("password_key", "ssh_password")
             doc = sops_json(fn)
             if "list_key" in src:
-                if "prefix" not in src:
-                    raise AnsibleParserError("a list source needs 'prefix'")
-                for i, entry in enumerate(doc.get(src["list_key"], [])):
-                    alias = "%s%02d" % (src["prefix"], i + 1)
-                    ref = "{{ lookup('corbet.crfs.sops', '%s', '%s.%d.%s') }}" % (fn, src["list_key"], i, pwk)
-                    add(alias, entry, src, ref, i + 1)
+                if "prefix" not in src and "name_format" not in src:
+                    raise AnsibleParserError("a list source needs 'prefix' or 'name_format'")
+                entries = list(enumerate(doc.get(src["list_key"], [])))
+                if src.get("sort_by"):
+                    rx = re.compile(src.get("sort_regex", r"(.*)"))
+
+                    def key(item):
+                        m = rx.search(str(item[1].get(src["sort_by"], "")))
+                        k = m.group(1) if m else ""
+                        return (0, int(k), "") if k.isdigit() else (1, 0, k)
+
+                    entries.sort(key=key)
+                start = int(src.get("index_start", 0 if "name_format" in src else 1))
+                for pos, (orig, entry) in enumerate(entries):
+                    n = pos + start
+                    alias = src["name_format"].format(i=n) if "name_format" in src else "%s%02d" % (src["prefix"], n)
+                    ref = "{{ lookup('corbet.crfs.sops', '%s', '%s.%d.%s') }}" % (fn, src["list_key"], orig, pwk)
+                    add(alias, entry, src, ref, n)
             else:
                 if "name" not in src:
                     raise AnsibleParserError("a single-account source needs 'name'")

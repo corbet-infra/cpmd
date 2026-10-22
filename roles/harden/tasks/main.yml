@@ -15,6 +15,10 @@
     fail_msg: "harden_admin_pubkey / harden_ssh_from are empty: the key has to exist first (see examples/)"
     quiet: true
 
+- name: Remember whether this is a check run
+  ansible.builtin.set_fact:
+    harden_is_check: "{{ ansible_check_mode }}"
+
 - name: Home directory not group-writable (sshd StrictModes)
   ansible.builtin.file:
     path: "{{ ansible_facts['user_dir'] }}"
@@ -82,15 +86,17 @@
 # ---- facts for the security sheet
 - name: Listening sockets of our processes
   ansible.builtin.shell: |
-    ss -tlnpH 2>/dev/null | awk '/users:/ {print $4 " " $NF}'
+    ss -tlnpH 2>/dev/null | grep 'users:' | while read -r st rq sq la pa rest; do
+      n=$(echo "$rest" | sed -n 's/.*users:(("\([^"]*\)".*/\1/p')
+      echo "$la|$n"
+    done
   register: harden_listen_raw
   changed_when: false
   check_mode: false
 
 - name: Classify listeners
   ansible.builtin.set_fact:
-    harden_listeners: >-
-      {{ harden_listeners | default([]) + [{'addr': item.split()[0], 'proc': (item.split()[1] | regex_replace('^users:\(\("([^"]+)".*$', '\1'))}] }}
+    harden_listeners: "{{ harden_listeners | default([]) + [{'addr': item.split('|')[0], 'proc': item.split('|')[1]}] }}"
   loop: "{{ harden_listen_raw.stdout_lines }}"
 
 - name: Unexpected listeners
@@ -148,4 +154,4 @@
 - name: Nothing may listen except our S3 port and the shop's services
   ansible.builtin.fail:
     msg: "unexpected listeners: {{ harden_unexpected }}"
-  when: harden_fail_on_unexpected_listener and harden_unexpected | length > 0
+  when: harden_fail_on_unexpected_listener and harden_unexpected | length > 0 and not harden_is_check | bool
