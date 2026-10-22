@@ -24,7 +24,7 @@
   check_mode: false
 
 - name: Issue a leaf
-  when: rustfs_tls_state.stdout | trim != 'OK'
+  when: rustfs_tls_state.stdout | trim != 'OK' and not ansible_check_mode
   block:
     - name: Key on the box (kept when it is still the right one)
       ansible.builtin.shell: |
@@ -127,6 +127,11 @@
       ansible.builtin.set_fact:
         rustfs_tls_changed: true
 
+- name: A leaf would be issued (check run)
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: leaf state {{ rustfs_tls_state.stdout | trim }}, would be (re)issued"
+  when: rustfs_tls_state.stdout | trim != 'OK' and ansible_check_mode
+
 # RUSTFS_TLS_PATH layout: rustfs_cert.pem, rustfs_key.pem, ca.crt (copies, so the unit does not depend on links)
 - name: RustFS TLS directory
   ansible.builtin.file:
@@ -145,6 +150,7 @@
     - {src: key.pem, dest: rustfs_key.pem, mode: "0600"}
     - {src: ca.pem, dest: ca.crt, mode: "0640"}
   register: rustfs_tls_copy
+  when: not (ansible_check_mode and rustfs_tls_state.stdout | trim != 'OK')
 
 - name: Remember that TLS material changed (copy)
   ansible.builtin.set_fact:
