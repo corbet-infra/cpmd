@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Rewrite the admin key line of authorized_keys only (from=, options), one account at a time, and prove a FRESH key login
+# afterwards. Nothing else of the harden role runs.
+#   ansible-playbook corbet.crfs.sshkey -e target=playground
+#   CRFS_AUTH=key ansible-playbook corbet.crfs.sshkey -e target=cluster
+# Removing or widening the restriction cannot lock a key login out. Tightening it (a from= list that does not contain
+# the controller's address) can: the play then fails at the fresh login and the password login of the shop (inventory
+# default auth) is the way back in.
+- name: Admin key line
+  hosts: "{{ target | mandatory }}"
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: authorized_keys
+      ansible.builtin.include_role:
+        name: corbet.crfs.harden
+        tasks_from: authkey.yml
+
+    - name: Drop the persistent connection (the next task logs in again)
+      ansible.builtin.meta: reset_connection
+
+    - name: Fresh login with the key works
+      ansible.builtin.ping:

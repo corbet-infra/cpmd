@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# The ONE authorized key of the account. harden_ssh_from is optional: empty = no from= restriction (key-only login from
+# anywhere; the password login of the shop stays as the re-bootstrap path). harden_authorized_options is kept as given
+# (no-* options, or permitlisten/command entries for a tunnel key).
+- name: Learn the account (user directory, uid)
+  ansible.builtin.setup:
+    gather_subset: [min]
+    filter: ansible_user_*
+  when: ansible_facts['user_dir'] is not defined
+
+- name: The admin key must be defined
+  ansible.builtin.assert:
+    that:
+      - harden_admin_pubkey | length > 0
+      - harden_admin_pubkey.split() | length >= 2
+    fail_msg: "harden_admin_pubkey is empty: the key has to exist first (see examples/)"
+    quiet: true
+
+- name: .ssh private
+  ansible.builtin.file:
+    path: "{{ ansible_facts['user_dir'] }}/.ssh"
+    state: directory
+    mode: "0700"
+
+- name: Current authorized_keys
+  ansible.builtin.slurp:
+    src: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
+  register: harden_ak_now
+  failed_when: false
+
+- name: Keep a copy of keys that were there before (public keys only), once
+  ansible.builtin.copy:
+    content: "{{ harden_ak_now.content | b64decode }}"
+    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys.pre-crfs"
+    mode: "0600"
+    force: false
+  when:
+    - harden_ak_now.content is defined
+    - (harden_ak_now.content | b64decode | trim) != harden_ak_line | trim
+  vars: &akvars
+    harden_ak_line: '{{ ("from=\"" ~ (harden_ssh_from | join(",")) ~ "\",") if harden_ssh_from | length > 0 else "" }}{{ harden_authorized_options }} {{ harden_admin_pubkey | trim }}'
+
+- name: authorized_keys holds exactly the admin key
+  ansible.builtin.copy:
+    content: "{{ harden_ak_line }}\n"
+    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
+    mode: "0600"
+  vars: *akvars
+

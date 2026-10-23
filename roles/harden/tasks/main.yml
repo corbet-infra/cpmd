@@ -6,15 +6,6 @@
     filter: ansible_user_*
   when: ansible_facts['user_dir'] is not defined
 
-- name: The admin key and its source list must be defined
-  ansible.builtin.assert:
-    that:
-      - harden_admin_pubkey | length > 0
-      - harden_admin_pubkey.split() | length >= 2
-      - harden_ssh_from | length > 0
-    fail_msg: "harden_admin_pubkey / harden_ssh_from are empty: the key has to exist first (see examples/)"
-    quiet: true
-
 - name: Remember whether this is a check run
   ansible.builtin.set_fact:
     harden_is_check: "{{ ansible_check_mode }}"
@@ -31,31 +22,9 @@
     mode: "0700"
   loop: "{{ harden_private_dirs }}"
 
-# ---- the single authorized key
-- name: Current authorized_keys
-  ansible.builtin.slurp:
-    src: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
-  register: harden_ak_now
-  failed_when: false
-
-- name: Keep a copy of keys that were there before (public keys only), once
-  ansible.builtin.copy:
-    content: "{{ harden_ak_now.content | b64decode }}"
-    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys.pre-crfs"
-    mode: "0600"
-    force: false
-  when:
-    - harden_ak_now.content is defined
-    - (harden_ak_now.content | b64decode | trim) != harden_ak_line | trim
-  vars: &akvars
-    harden_ak_line: 'from="{{ harden_ssh_from | join(",") }}",{{ harden_authorized_options }} {{ harden_admin_pubkey | trim }}'
-
-- name: authorized_keys holds exactly the admin key
-  ansible.builtin.copy:
-    content: "{{ harden_ak_line }}\n"
-    dest: "{{ ansible_facts['user_dir'] }}/.ssh/authorized_keys"
-    mode: "0600"
-  vars: *akvars
+# ---- the single authorized key (authkey.yml: also run on its own by playbooks/sshkey.yml)
+- name: The admin key
+  ansible.builtin.include_tasks: authkey.yml
 
 # ---- umask for everything we create from a shell (the shop's .profile already says 077; its .bashrc sources .bashrc.user)
 - name: umask 077 in the customisation file the shop keeps out of its managed files
