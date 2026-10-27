@@ -26,7 +26,7 @@ options:
     description:
       - List of sources. Each is a dict with C(file) (absolute, or relative to the inventory file), C(group)
         (inventory group), and for a list file C(list_key) and either C(prefix) (hosts are named C(<prefix>01), ...)
-        or C(name_format) (for example C(node-{i}), with C(index_start), default 0). Optional C(sort_by) names a field
+        or C(name_format) (for example C(node-{i}), with C(index_start), default 0). Optional C(names) is a list of host names taken in the sorted order instead of the generated ones, and C(host_groups) maps single host names to another group. Optional C(sort_by) names a field
         of the entries and C(sort_regex) a regex whose first group is extracted from it; entries are numbered in
         ascending order of that key (numeric when it is all digits), otherwise in file order. For a single-account
         file give C(name). Optional C(host_key), C(user_key), C(password_key) rename the keys (defaults C(host),
@@ -158,7 +158,7 @@ class InventoryModule(BaseInventoryPlugin):
             os.chmod(keyfile, 0o600)
 
         def add(alias, entry, src, pw_ref, index):
-            group = src["group"]
+            group = (src.get("host_groups") or {}).get(alias, src["group"])
             self.inventory.add_group(group)
             self.inventory.add_host(alias, group=group)
             v = self.inventory.set_variable
@@ -203,6 +203,8 @@ class InventoryModule(BaseInventoryPlugin):
                 for pos, (orig, entry) in enumerate(entries):
                     n = pos + start
                     alias = src["name_format"].format(i=n) if "name_format" in src else "%s%02d" % (src["prefix"], n)
+                    if src.get("names"):
+                        alias = src["names"][pos]
                     ref = "{{ lookup('corbet.crfs.sops', '%s', '%s.%d.%s') }}" % (fn, src["list_key"], orig, pwk)
                     add(alias, entry, src, ref, n)
             else:
