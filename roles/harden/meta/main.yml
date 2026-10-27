@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 ---
 galaxy_info:
-  author: Corbet
+  author: Julian Y. Richard Corbet
   description: account-level hardening of a rented seedbox account (modes, one restricted SSH key, umask, listeners)
-  license: MIT
+  license: LGPL-3.0-or-later
   min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions: [bookworm]
 dependencies: []

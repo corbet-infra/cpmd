@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: LGPL-3.0-or-later
-# crfs-agent: the one helper the crfs collection puts on a rented seedbox account (Debian 12, no root, cgroup v1,
+# crfs-agent: the one helper the cpmd collection puts on a rented seedbox account (Debian 12, no root, cgroup v1,
 # python3 stdlib only). It never reads a password from an argument.
 #
 #   crfs-agent facts <name>             print the fact sheet of this account as JSON

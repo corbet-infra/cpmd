@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 ---
 # Hosts come from sops files; no password ever appears here or in `ansible-inventory --list`.
-plugin: corbet.crfs.sops_accounts
+plugin: corbet.cpmd.sops_accounts
 known_hosts: ../known_hosts          # filled by tools/scan-hostkeys; connections use StrictHostKeyChecking=yes
-auth: password                       # bootstrap; switch to `key` (or export CRFS_AUTH=key) after the admin key is installed
+auth: password                       # bootstrap; switch to `key` (or export CPMD_AUTH=key) after the admin key is installed
 sources:
   - file: /path/to/accounts.sops.yml   # decrypts to: accounts: [{host: ..., ssh_user: ..., ssh_password: ...}, ...]
     list_key: accounts

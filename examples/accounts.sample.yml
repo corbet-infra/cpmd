@@ -5,7 +5,7 @@ accounts:
   - host: account1.example.com
     ssh_user: demo
     ssh_password: change-me
-    service_id: "1001"            # any other plain fields are kept in the host variable crfs_attrs
+    service_id: "1001"            # any other plain fields are kept in the host variable cpmd_attrs
   - host: account2.example.com
     ssh_user: demo
     ssh_password: change-me

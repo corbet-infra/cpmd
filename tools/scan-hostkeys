@@ -11,7 +11,7 @@ import json,sys
 inv=json.load(sys.stdin)
 for h,v in sorted(inv["_meta"]["hostvars"].items()):
     u=lambda x: x["__ansible_unsafe"] if isinstance(x, dict) else x
-    print(h, u(v["ansible_host"]), u(v["crfs_label"]))' | while read alias ip name; do
+    print(h, u(v["ansible_host"]), u(v["cpmd_label"]))' | while read alias ip name; do
   if grep -q "^$ip[, ]" "$kh" 2>/dev/null; then echo "$alias: pinned"; continue; fi
   line=$(ssh-keyscan -t ed25519 "$ip" 2>/dev/null | grep -v '^#' | head -1 | cut -d' ' -f2-)
   [ -n "$line" ] || { echo "$alias: no key"; continue; }

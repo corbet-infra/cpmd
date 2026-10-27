@@ -5,4 +5,4 @@
   hosts: "{{ target | mandatory }}"
   gather_facts: false
   roles:
-    - role: corbet.crfs.facts
+    - role: corbet.cpmd.facts

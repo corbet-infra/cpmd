@@ -1,7 +1,0 @@
-# SPDX-License-Identifier: LGPL-3.0-or-later
----
-# A single account used for tests: one drive, so no erasure coding (EC:2 needs at least 4 drives).
-rustfs_cluster_group: ""
-rustfs_storage_class_standard: ""
-rustfs_server_datadirs:
-  - "{{ ansible_facts['user_dir'] }}/cold/data/rustfs-test"

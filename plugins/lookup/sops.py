@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # SPDX-License-Identifier: LGPL-3.0-or-later
-# One value out of a sops file, never printed: `lookup('corbet.crfs.sops', '/path/file.yml', 'key')`.
+# One value out of a sops file, never printed: `lookup('corbet.cpmd.sops', '/path/file.yml', 'key')`.
 from __future__ import annotations
 
 DOCUMENTATION = r"""
@@ -19,7 +19,7 @@ options:
     description: Directory for relative file names.
     default: ''
     env:
-      - name: CRFS_SECRETS_DIR
+      - name: CPMD_SECRETS_DIR
   multiline:
     description: Allow a multi-line value (PEM).
     type: bool
@@ -30,7 +30,7 @@ notes:
 
 EXAMPLES = r"""
 - ansible.builtin.set_fact:
-    rustfs_root_password: "{{ lookup('corbet.crfs.sops', '/path/to/cluster.sops.yml', 'rustfs_secret_key') }}"
+    db_password: "{{ lookup('corbet.cpmd.sops', '/path/to/secrets.sops.yml', 'db_password') }}"
   no_log: true
 """
 
@@ -75,6 +75,6 @@ class LookupModule(LookupBase):
         base = os.path.expanduser(self.get_option("secrets_dir") or "")
         fn = os.path.expanduser(terms[0])
         if not os.path.isabs(fn) and not base:
-            raise AnsibleLookupError("relative sops file name %r needs secrets_dir / CRFS_SECRETS_DIR" % fn)
+            raise AnsibleLookupError("relative sops file name %r needs secrets_dir / CPMD_SECRETS_DIR" % fn)
         path = fn if os.path.isabs(fn) else os.path.join(base, fn)
         return [sops_extract(path, terms[1], self.get_option("multiline"))]

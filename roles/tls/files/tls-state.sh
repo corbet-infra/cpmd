@@ -1,8 +1,8 @@
 #!/bin/sh
 # SPDX-License-Identifier: LGPL-3.0-or-later
 # Prints OK when the leaf of this box is good, otherwise the reason (one word). Arguments: expected SAN list,
-# fingerprint of the cluster CA. Read-only.
-d="$HOME/cold/tls"
+# fingerprint of the CA, optionally the directory of the leaf (default ~/cold/tls). Read-only.
+d=${3:-"$HOME/cold/tls"}
 want_san=$1; ca_fp=$2
 [ -f "$d/key.pem" ] || { echo NOKEY; exit 0; }
 [ -f "$d/cert.pem" ] || { echo NOCERT; exit 0; }

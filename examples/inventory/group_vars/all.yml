@@ -4,9 +4,4 @@
 # again by password (it stays valid) and update the list.
 harden_ssh_from:
   - 203.0.113.5
-harden_admin_pubkey: "ssh-ed25519 AAAA...example admin@example.com"
-
-# RustFS: shared credentials and CA (sops file with rustfs_access_key, rustfs_secret_key, ca_key; CA certificate public)
-rustfs_creds_sops: /path/to/cluster.sops.yml
-rustfs_ca_cert_file: /path/to/ca.pem
-rustfs_server_port: 12000         # a port your account may bind and that is reachable from outside
+harden_admin_pubkey: "ssh-ed25519 AAAA...example admin-key"

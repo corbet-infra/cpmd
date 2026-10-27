@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Where the fact sheets land on the controller (one JSON per box; no secrets in them).
+facts_dir: "{{ cpmd_facts_dir | default((inventory_dir | default(lookup('env', 'PWD'))) ~ '/../facts') }}"
+# ports whose bindability the fact sheet probes
+facts_probe_ports: [9000]

@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+- name: Install the box agent
+  ansible.builtin.include_role:
+    name: corbet.cpmd.agent
+    tasks_from: agent.yml
+
+- name: Is the agent there (a check run on a fresh account has not installed it)
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['user_dir'] }}/cold/bin/crfs-agent"
+  register: facts_agent
+
+- name: Fact sheet
+  when: facts_agent.stat.exists
+  block:
+    - name: Collect the fact sheet on the box
+      ansible.builtin.command:
+        argv: ["/usr/bin/python3", "-I", "{{ ansible_facts['user_dir'] }}/cold/bin/crfs-agent", "facts", "{{ inventory_hostname }}"]
+      environment:
+        CRFS_PORTS: "{{ facts_probe_ports | join(',') }}"
+      register: facts_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Keep the sheet in a variable
+      ansible.builtin.set_fact:
+        box_facts: "{{ facts_raw.stdout | from_json }}"
+
+    - name: Write the sheet on the controller
+      ansible.builtin.copy:
+        content: "{{ box_facts | combine({'inventory': {'alias': inventory_hostname, 'label': cpmd_label | default(''), 'attrs': cpmd_attrs | default({})}}) | to_nice_json(indent=1, sort_keys=true) }}\n"
+        dest: "{{ facts_dir }}/{{ inventory_hostname }}.json"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      diff: false
+
+    - name: One line per box
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: label {{ cpmd_label | default('-') }}
+          ram-limit {{ (box_facts.limits.memory.limit_bytes / 1048576) | round | int }} MiB
+          ram-used {{ (box_facts.limits.memory.usage_bytes / 1048576) | round | int }} MiB
+          own-rss {{ (box_facts.own_memory.rss_sum_bytes / 1048576) | round | int }} MiB
+          cores {{ box_facts.limits.cpu.cores | default('?') }}
+          ports {{ box_facts.ports.ours }}

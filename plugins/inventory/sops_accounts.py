@@ -9,19 +9,19 @@ short_description: inventory of rented seedbox accounts from sops files
 description:
   - Builds hosts from one or more sops-encrypted files. A source is either a file holding a LIST of accounts
     (O(sources[].list_key)) or a file that is a single account. Every account needs a host name (DNS name or
-    address), an SSH user and an SSH password; other plain fields are kept in the host variable C(crfs_attrs).
+    address), an SSH user and an SSH password; other plain fields are kept in the host variable C(cpmd_attrs).
   - The SSH password is NEVER put into the inventory as text. With O(auth=password) the host variable
-    C(ansible_password) is a lookup template that reads that one value through the C(corbet.crfs.sops)
+    C(ansible_password) is a lookup template that reads that one value through the C(corbet.cpmd.sops)
     lookup when a task needs it, so C(ansible-inventory --list) shows the template only. With O(auth=key) the
     admin private key (a sops value) is written to a 0600 file under /dev/shm for the life of the process and
-    shredded at exit; the host variable C(crfs_admin_key_file) names it.
+    shredded at exit; the host variable C(cpmd_admin_key_file) names it.
   - Host keys are never trusted on first use by the connection, so O(known_hosts) must hold the pinned keys
     (the C(tools/scan-hostkeys) script of the collection fills it).
 options:
   plugin:
-    description: Must be C(corbet.crfs.sops_accounts).
+    description: Must be C(corbet.cpmd.sops_accounts).
     required: true
-    choices: ['corbet.crfs.sops_accounts']
+    choices: ['corbet.cpmd.sops_accounts']
   sources:
     description:
       - List of sources. Each is a dict with C(file) (absolute, or relative to the inventory file), C(group)
@@ -42,7 +42,7 @@ options:
     default: password
     choices: [password, key]
     env:
-      - name: CRFS_AUTH
+      - name: CPMD_AUTH
   admin_key:
     description: Dict with C(file) and C(key) of the sops value that holds the admin private key. Needed for O(auth=key).
     type: dict
@@ -51,7 +51,7 @@ options:
 
 EXAMPLES = r"""
 # inventory/accounts.sops_accounts.yml
-plugin: corbet.crfs.sops_accounts
+plugin: corbet.cpmd.sops_accounts
 known_hosts: ../known_hosts
 sources:
   - file: /path/to/accounts.sops.yml     # contains: accounts: [{host: ..., ssh_user: ..., ssh_password: ...}, ...]
@@ -111,7 +111,7 @@ def sops_value(path, key):
 
 
 class InventoryModule(BaseInventoryPlugin):
-    NAME = "corbet.crfs.sops_accounts"
+    NAME = "corbet.cpmd.sops_accounts"
 
     def verify_file(self, path):
         return super().verify_file(path) and path.endswith(("sops_accounts.yml", "sops_accounts.yaml"))
@@ -151,7 +151,7 @@ class InventoryModule(BaseInventoryPlugin):
             ak = self.get_option("admin_key") or {}
             if not ak.get("file") or not ak.get("key") or not os.path.exists(rel(ak["file"])):
                 raise AnsibleParserError("auth=key needs admin_key.file (existing) and admin_key.key")
-            fd, keyfile = tempfile.mkstemp(prefix="crfs-admin-key.", dir="/dev/shm")
+            fd, keyfile = tempfile.mkstemp(prefix="cpmd-admin-key.", dir="/dev/shm")
             _SHRED.append(keyfile)
             os.write(fd, sops_value(rel(ak["file"]), ak["key"]).rstrip("\n").encode() + b"\n")
             os.close(fd)
@@ -170,12 +170,12 @@ class InventoryModule(BaseInventoryPlugin):
             v(alias, "ansible_port", 22)
             v(alias, "ansible_python_interpreter", "/usr/bin/python3")
             v(alias, "ansible_ssh_common_args", common)
-            v(alias, "crfs_label", host)
-            v(alias, "crfs_index", index)
-            v(alias, "crfs_attrs", attrs)
+            v(alias, "cpmd_label", host)
+            v(alias, "cpmd_index", index)
+            v(alias, "cpmd_attrs", attrs)
             if auth == "key":
                 v(alias, "ansible_ssh_private_key_file", keyfile)
-                v(alias, "crfs_admin_key_file", keyfile)
+                v(alias, "cpmd_admin_key_file", keyfile)
             else:
                 v(alias, "ansible_password", trust_as_template(pw_ref))
 
@@ -205,10 +205,10 @@ class InventoryModule(BaseInventoryPlugin):
                     alias = src["name_format"].format(i=n) if "name_format" in src else "%s%02d" % (src["prefix"], n)
                     if src.get("names"):
                         alias = src["names"][pos]
-                    ref = "{{ lookup('corbet.crfs.sops', '%s', '%s.%d.%s') }}" % (fn, src["list_key"], orig, pwk)
+                    ref = "{{ lookup('corbet.cpmd.sops', '%s', '%s.%d.%s') }}" % (fn, src["list_key"], orig, pwk)
                     add(alias, entry, src, ref, n)
             else:
                 if "name" not in src:
                     raise AnsibleParserError("a single-account source needs 'name'")
-                ref = "{{ lookup('corbet.crfs.sops', '%s', '%s') }}" % (fn, pwk)
+                ref = "{{ lookup('corbet.cpmd.sops', '%s', '%s') }}" % (fn, pwk)
                 add(src["name"], doc, src, ref, 0)

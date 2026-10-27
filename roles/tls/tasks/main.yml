@@ -1,66 +1,81 @@
 # SPDX-License-Identifier: LGPL-3.0-or-later
 ---
-# Leaf certificate per box, signed by the cluster CA. The key is made ON the box and never leaves it; the CA key
+# Leaf certificate per box, signed by your CA. The key is made ON the box and never leaves it; the CA key
 # comes from sops straight into openssl's stdin on the controller (no file). Names and addresses of the box
-# are in the SAN; the same leaf serves RustFS (client and server auth) and any other TLS service of the box.
+# are in the SAN; the same leaf serves every TLS service of the box (client and server auth).
+- name: Required settings
+  ansible.builtin.assert:
+    that:
+      - tls_names | length > 0
+      - tls_ca_cert_file | length > 0
+      - tls_ca_key_sops_file | length > 0
+    fail_msg: "tls_names, tls_ca_cert_file and tls_ca_key_sops_file must be set, see the role defaults"
+    quiet: true
+
+- name: Directory of the leaf (private)
+  ansible.builtin.file:
+    path: "{{ tls_dir }}"
+    state: directory
+    mode: "0700"
+
 - name: SAN of this box
   ansible.builtin.set_fact:
-    rustfs_san: "{{ (rustfs_tls_names | map('regex_replace', '^(.*)$', 'DNS:\\1') | list + rustfs_tls_ips | map('regex_replace', '^(.*)$', 'IP:\\1') | list) | join(',') }}"
+    tls_san: "{{ (tls_names | map('regex_replace', '^(.*)$', 'DNS:\\1') | list + tls_ips | map('regex_replace', '^(.*)$', 'IP:\\1') | list) | join(',') }}"
 
-- name: Fingerprint of the cluster CA certificate
+- name: Fingerprint of your CA certificate
   ansible.builtin.command:
-    argv: [openssl, x509, -in, "{{ rustfs_ca_cert_file }}", -noout, -fingerprint, -sha256]
+    argv: [openssl, x509, -in, "{{ tls_ca_cert_file }}", -noout, -fingerprint, -sha256]
   delegate_to: localhost
   become: false
-  register: rustfs_ca_fp_raw
+  register: tls_ca_fp_raw
   changed_when: false
   check_mode: false
 
 - name: State of the leaf on the box
   ansible.builtin.script:
-    cmd: "tls-state.sh '{{ rustfs_san }}' '{{ rustfs_ca_fp_raw.stdout.split('=')[1] }}'"
-  register: rustfs_tls_state
+    cmd: "tls-state.sh '{{ tls_san }}' '{{ tls_ca_fp_raw.stdout.split('=')[1] }}' '{{ tls_dir }}'"
+  register: tls_state
   changed_when: false
   check_mode: false
 
 - name: Issue a leaf
-  when: rustfs_tls_state.stdout | trim != 'OK' and not ansible_check_mode
+  when: tls_state.stdout | trim != 'OK' and not ansible_check_mode
   block:
     - name: Key on the box (kept when it is still the right one)
       ansible.builtin.shell: |
         umask 077
-        openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "{{ rustfs_tls_dir }}/key.pem"
-      when: rustfs_tls_state.stdout | trim in ['NOKEY', 'KEYMISMATCH']
+        openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "{{ tls_dir }}/key.pem"
+      when: tls_state.stdout | trim in ['NOKEY', 'KEYMISMATCH']
 
     - name: CSR
       ansible.builtin.command:
-        argv: [openssl, req, -new, -key, "{{ rustfs_tls_dir }}/key.pem", -subj, "/CN={{ rustfs_tls_names[0] }}", -addext, "subjectAltName={{ rustfs_san }}"]
-      register: rustfs_csr
+        argv: [openssl, req, -new, -key, "{{ tls_dir }}/key.pem", -subj, "/CN={{ tls_names[0] }}", -addext, "subjectAltName={{ tls_san }}"]
+      register: tls_csr
       changed_when: false
 
     - name: Private scratch on the controller (/dev/shm)
       ansible.builtin.tempfile:
         state: directory
         path: /dev/shm
-        prefix: rustfs-tls.
+        prefix: cpmd-tls.
       delegate_to: localhost
       become: false
-      register: rustfs_scratch
+      register: tls_scratch
 
     - name: CSR and extensions as files there
       ansible.builtin.copy:
         content: "{{ item.content }}"
-        dest: "{{ rustfs_scratch.path }}/{{ item.name }}"
+        dest: "{{ tls_scratch.path }}/{{ item.name }}"
         mode: "0600"
       delegate_to: localhost
       become: false
       loop_control:
         label: "{{ item.name }}"
       loop:
-        - {name: leaf.csr, content: "{{ rustfs_csr.stdout }}\n"}
+        - {name: leaf.csr, content: "{{ tls_csr.stdout }}\n"}
         - name: ext.cnf
           content: |
-            subjectAltName={{ rustfs_san }}
+            subjectAltName={{ tls_san }}
             keyUsage=critical,digitalSignature
             extendedKeyUsage=serverAuth,clientAuth
             basicConstraints=critical,CA:false
@@ -72,87 +87,63 @@
           - x509
           - -req
           - -in
-          - "{{ rustfs_scratch.path }}/leaf.csr"
+          - "{{ tls_scratch.path }}/leaf.csr"
           - -CA
-          - "{{ rustfs_ca_cert_file }}"
+          - "{{ tls_ca_cert_file }}"
           - -CAkey
           - /dev/stdin
           - -set_serial
           - "0x{{ lookup('ansible.builtin.password', '/dev/null chars=hexdigits length=24') }}"
           - -days
-          - "{{ rustfs_leaf_days }}"
+          - "{{ tls_leaf_days }}"
           - -sha256
           - -extfile
-          - "{{ rustfs_scratch.path }}/ext.cnf"
+          - "{{ tls_scratch.path }}/ext.cnf"
           - -out
-          - "{{ rustfs_scratch.path }}/leaf.pem"
-        stdin: "{{ lookup('corbet.crfs.sops', rustfs_ca_key_sops_file, rustfs_ca_key_sops_key, multiline=true) }}\n"
+          - "{{ tls_scratch.path }}/leaf.pem"
+        stdin: "{{ lookup('corbet.cpmd.sops', tls_ca_key_sops_file, tls_ca_key_sops_key, multiline=true) }}\n"
       delegate_to: localhost
       become: false
       no_log: true
 
     - name: Signed leaf
       ansible.builtin.slurp:
-        src: "{{ rustfs_scratch.path }}/leaf.pem"
+        src: "{{ tls_scratch.path }}/leaf.pem"
       delegate_to: localhost
       become: false
-      register: rustfs_leaf
+      register: tls_leaf
 
     - name: Leaf and CA onto the box
       ansible.builtin.copy:
         content: "{{ item.content }}"
-        dest: "{{ rustfs_tls_dir }}/{{ item.name }}"
+        dest: "{{ tls_dir }}/{{ item.name }}"
         mode: "0640"
       loop_control:
         label: "{{ item.name }}"
       loop:
-        - {name: cert.pem, content: "{{ rustfs_leaf.content | b64decode }}"}
-        - {name: ca.pem, content: "{{ lookup('ansible.builtin.file', rustfs_ca_cert_file) }}"}
+        - {name: cert.pem, content: "{{ tls_leaf.content | b64decode }}"}
+        - {name: ca.pem, content: "{{ lookup('ansible.builtin.file', tls_ca_cert_file) }}"}
 
     - name: Scratch gone
       ansible.builtin.command:
-        argv: [shred, -u, "{{ rustfs_scratch.path }}/leaf.csr", "{{ rustfs_scratch.path }}/ext.cnf", "{{ rustfs_scratch.path }}/leaf.pem"]
+        argv: [shred, -u, "{{ tls_scratch.path }}/leaf.csr", "{{ tls_scratch.path }}/ext.cnf", "{{ tls_scratch.path }}/leaf.pem"]
       delegate_to: localhost
       become: false
       changed_when: false
 
     - name: Scratch directory gone
       ansible.builtin.file:
-        path: "{{ rustfs_scratch.path }}"
+        path: "{{ tls_scratch.path }}"
         state: absent
       delegate_to: localhost
       become: false
 
     - name: Remember that TLS material changed
       ansible.builtin.set_fact:
-        rustfs_tls_changed: true
+        tls_changed: true
 
 - name: A leaf would be issued (check run)
   ansible.builtin.debug:
-    msg: "{{ inventory_hostname }}: leaf state {{ rustfs_tls_state.stdout | trim }}, would be (re)issued"
-  when: rustfs_tls_state.stdout | trim != 'OK' and ansible_check_mode
+    msg: "{{ inventory_hostname }}: leaf state {{ tls_state.stdout | trim }}, would be (re)issued"
+  when: tls_state.stdout | trim != 'OK' and ansible_check_mode
 
-# RUSTFS_TLS_PATH layout: rustfs_cert.pem, rustfs_key.pem, ca.crt (copies, so the unit does not depend on links)
-- name: RustFS TLS directory
-  ansible.builtin.file:
-    path: "{{ rustfs_tls_path }}"
-    state: directory
-    mode: "0700"
-
-- name: RustFS TLS files
-  ansible.builtin.copy:
-    src: "{{ rustfs_tls_dir }}/{{ item.src }}"
-    dest: "{{ rustfs_tls_path }}/{{ item.dest }}"
-    remote_src: true
-    mode: "{{ item.mode }}"
-  loop:
-    - {src: cert.pem, dest: rustfs_cert.pem, mode: "0640"}
-    - {src: key.pem, dest: rustfs_key.pem, mode: "0600"}
-    - {src: ca.pem, dest: ca.crt, mode: "0640"}
-  register: rustfs_tls_copy
-  when: not (ansible_check_mode and rustfs_tls_state.stdout | trim != 'OK')
-
-- name: Remember that TLS material changed (copy)
-  ansible.builtin.set_fact:
-    rustfs_tls_changed: true
-  when: rustfs_tls_copy is changed

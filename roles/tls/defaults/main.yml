@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Leaf certificate of one box, signed by your own CA. The key is made on the box and never leaves it; the CA key is
+# read from sops straight into openssl's stdin on the controller. Result on the box: key.pem, cert.pem, ca.pem in tls_dir.
+# The fact tls_changed is set to true when any of them was (re)written.
+tls_dir: "{{ ansible_facts['user_dir'] }}/cold/tls"
+tls_names: []                  # DNS names of the box (the first one is the CN); required
+tls_ips: []                    # IP addresses of the box
+tls_ca_cert_file: ""           # path of the CA certificate on the controller; required
+tls_ca_key_sops_file: ""       # sops file holding the CA key; required
+tls_ca_key_sops_key: ca_key
+tls_leaf_days: 825
