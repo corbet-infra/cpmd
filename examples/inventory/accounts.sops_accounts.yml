@@ -7,7 +7,7 @@ auth: password                       # bootstrap; switch to `key` (or export CPM
 sources:
   - file: /path/to/accounts.sops.yml   # decrypts to: accounts: [{host: ..., ssh_user: ..., ssh_password: ...}, ...]
     list_key: accounts
-    prefix: node                       # node01, node02, ... (or name_format: 'cld-{i}' with index_start: 0)
+    prefix: node                       # node01, node02, ... (or name_format: 'box-{i}' with index_start: 0)
     # sort_by: service_id              # number the accounts by a field of the entries,
     # sort_regex: '#(\\d+)$'           # using the first group of this regex (numeric order)
     group: cluster

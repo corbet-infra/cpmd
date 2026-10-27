@@ -29,25 +29,25 @@ cat > "$w/inv/t.sops_accounts.yml" <<Y
 plugin: corbet.cpmd.sops_accounts
 known_hosts: ../known_hosts
 sources:
-  - {file: $w/accounts.yml, list_key: accounts, name_format: 'cld-{i}', sort_by: service_id, sort_regex: '#(\\d+)\$', group: cluster}
+  - {file: $w/accounts.yml, list_key: accounts, name_format: 'box-{i}', sort_by: service_id, sort_regex: '#(\\d+)\$', group: cluster}
   - {file: $w/solo.yml, name: playground, group: testbox}
 admin_key: {file: $w/admin.yml, key: admin_ssh_key}
 Y
 out=$(ansible-inventory -i "$w/inv/t.sops_accounts.yml" --list)
-echo "$out" | grep -q '"cld-1"' || { echo "FAIL cld-1 missing"; exit 1; }
+echo "$out" | grep -q '"box-1"' || { echo "FAIL box-1 missing"; exit 1; }
 echo "$out" | grep -q '"playground"' || { echo "FAIL playground missing"; exit 1; }
 echo "$out" | grep -q 'xyzzy' && { echo "FAIL a password is in the inventory output"; exit 1; }
 echo "$out" | grep -q "lookup('corbet.cpmd.sops'" || { echo "FAIL password template missing"; exit 1; }
 echo "$out" | grep -q '"service_id"' || { echo "FAIL attrs missing"; exit 1; }
 # the lookup resolves the template (length only, never the value)
-n=$(ansible -i "$w/inv/t.sops_accounts.yml" cld-1 -m ansible.builtin.debug -a 'msg={{ ansible_password | length }}' -c local 2>&1 | grep -o '"msg": [0-9]*' | grep -o '[0-9]*$')
+n=$(ansible -i "$w/inv/t.sops_accounts.yml" box-1 -m ansible.builtin.debug -a 'msg={{ ansible_password | length }}' -c local 2>&1 | grep -o '"msg": [0-9]*' | grep -o '[0-9]*$')
 [ "$n" = 12 ] || { echo "FAIL password length via lookup was '$n'"; exit 1; }
 # key mode writes a 0600 /dev/shm file and shreds it at exit
 out=$(CPMD_AUTH=key ansible-inventory -i "$w/inv/t.sops_accounts.yml" --list)
 echo "$out" | grep -q '"cpmd_admin_key_file"' || { echo "FAIL key mode"; exit 1; }
 ls /dev/shm 2>/dev/null | grep -q '^cpmd-admin-key' && { echo "FAIL key file left behind"; exit 1; }
 echo "inventory OK"
-# numbering follows the sort key: cld-0 is the account with the smallest id (#3 = second list entry)
-h0=$(ansible-inventory -i "$w/inv/t.sops_accounts.yml" --host cld-0)
-echo "$h0" | grep -q '#9/#3' || { echo "FAIL cld-0 is not the lowest id: $h0"; exit 1; }
+# numbering follows the sort key: box-0 is the account with the smallest id (#3 = second list entry)
+h0=$(ansible-inventory -i "$w/inv/t.sops_accounts.yml" --host box-0)
+echo "$h0" | grep -q '#9/#3' || { echo "FAIL box-0 is not the lowest id: $h0"; exit 1; }
 echo "sorting OK"
