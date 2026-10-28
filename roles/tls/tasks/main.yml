@@ -16,7 +16,6 @@
   ansible.builtin.file:
     path: "{{ tls_dir }}"
     state: directory
-    mode: "0700"
 
 - name: SAN of this box
   ansible.builtin.set_fact:
@@ -147,3 +146,15 @@
     msg: "{{ inventory_hostname }}: leaf state {{ tls_state.stdout | trim }}, would be (re)issued"
   when: tls_state.stdout | trim != 'OK' and ansible_check_mode
 
+
+# The private key is the one file here whose mode is declared (the directory mode is not: the shop re-chmods account homes, see the seaweedfs_volume role).
+- name: Private key of the leaf
+  ansible.builtin.stat:
+    path: "{{ tls_dir }}/key.pem"
+  register: tls_key_stat
+
+- name: Private key is 0600
+  ansible.builtin.file:
+    path: "{{ tls_dir }}/key.pem"
+    mode: "0600"
+  when: tls_key_stat.stat.exists
