@@ -1,5 +1,0 @@
-# Managed by the corbet.cpmd role ygg_proxy. The node's private key is NOT here: the unit adds it at every start.
-# multicast_interfaces MUST be a top-level key, or the default (all interfaces) applies.
-multicast_interfaces = []
-peers = [{% for p in ygg_proxy_peers %}"{{ p }}"{{ ", " if not loop.last else "" }}{% endfor %}]
-allowed_public_keys = [{% for k in ygg_proxy_allowed_keys %}"{{ k }}"{{ ", " if not loop.last else "" }}{% endfor %}]
