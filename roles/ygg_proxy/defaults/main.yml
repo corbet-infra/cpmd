@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# Directory ON THE CONTROLLER that holds the two static binaries (yggdrasil, yggdrasil-proxy): the bin/ of a static build. Required.
+ygg_proxy_src: ""
+# Everything of the role lives under this directory of the account (bin/, etc/, run/); no root, no system paths.
+ygg_proxy_base_dir: "{{ ansible_facts['user_dir'] }}/ygg"
+# Peers to dial, as URIs (tcp://host:port?key=<public key hex>), and the public keys that may peer with this node (a closed mesh).
+ygg_proxy_peers: []
+ygg_proxy_allowed_keys: []
+# Host listeners that forward into the mesh, as LISTEN=TARGET (for example 127.0.0.1:4318=[200:1234::1]:4318).
+ygg_proxy_forwards: []
+ygg_proxy_loglevel: warn

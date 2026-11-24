@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: LGPL-3.0-or-later
+---
+# A rootless Yggdrasil-ng proxy for one box account: binaries copied from the controller, node key generated on the box at the first start
+# (never leaves it), config rendered from the variables, a systemd USER unit. Restarts the unit only when binary, config or unit changed.
+- name: Learn the account (user directory, uid)
+  ansible.builtin.setup:
+    gather_subset: [min]
+    filter: ansible_user_*
+  when: ansible_facts['user_dir'] is not defined
+
+- name: Required settings
+  ansible.builtin.assert:
+    that:
+      - ygg_proxy_src | length > 0
+      - ygg_proxy_peers | length > 0
+      - ygg_proxy_allowed_keys | length > 0
+    fail_msg: "ygg_proxy_src, ygg_proxy_peers and ygg_proxy_allowed_keys must be set (the mesh is closed: list the keys)"
+    quiet: true
+
+- name: Directories (private)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ ygg_proxy_base_dir }}"
+    - "{{ ygg_proxy_base_dir }}/bin"
+    - "{{ ygg_proxy_base_dir }}/etc"
+    - "{{ ygg_proxy_base_dir }}/run"
+    - "{{ ansible_facts['user_dir'] }}/.config/systemd/user"
+
+- name: Binaries (compared by checksum)
+  ansible.builtin.copy:
+    src: "{{ ygg_proxy_src }}/{{ item }}"
+    dest: "{{ ygg_proxy_base_dir }}/bin/{{ item }}"
+    mode: "0700"
+  loop: [yggdrasil, yggdrasil-proxy]
+  register: ygg_proxy_bins
+
+- name: Declared configuration
+  ansible.builtin.template:
+    src: declared.toml.j2
+    dest: "{{ ygg_proxy_base_dir }}/etc/declared.toml"
+    mode: "0600"
+  register: ygg_proxy_declared
+
+- name: Unit file
+  ansible.builtin.template:
+    src: ygg-proxy.service.j2
+    dest: "{{ ansible_facts['user_dir'] }}/.config/systemd/user/ygg-proxy.service"
+    mode: "0640"
+  register: ygg_proxy_unit
+
+- name: Reload the user manager and run the unit
+  ansible.builtin.systemd_service:
+    name: ygg-proxy
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: "{{ 'restarted' if (ygg_proxy_bins is changed or ygg_proxy_declared is changed or ygg_proxy_unit is changed) else 'started' }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_facts['user_uid'] }}"

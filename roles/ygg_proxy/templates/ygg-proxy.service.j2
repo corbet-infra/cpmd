@@ -1,0 +1,16 @@
+# Managed by the corbet.cpmd role ygg_proxy.
+[Unit]
+Description=Yggdrasil-ng proxy (userspace, no TUN)
+
+[Service]
+Type=simple
+UMask=0077
+# every start: the runtime config = the private key (generated once) + the declared options; the public side is published for the harvest
+ExecStartPre=/bin/sh -c 'umask 077; if [ ! -s {{ ygg_proxy_base_dir }}/etc/identity.toml ]; then {{ ygg_proxy_base_dir }}/bin/yggdrasil -g {{ ygg_proxy_base_dir }}/etc/identity.toml.new >/dev/null && mv {{ ygg_proxy_base_dir }}/etc/identity.toml.new {{ ygg_proxy_base_dir }}/etc/identity.toml; fi; key=$(grep -m1 "^private_key" {{ ygg_proxy_base_dir }}/etc/identity.toml); { echo "$key"; cat {{ ygg_proxy_base_dir }}/etc/declared.toml; } > {{ ygg_proxy_base_dir }}/run/node.toml; priv=$(echo "$key" | sed "s/.*\\"\\(.*\\)\\".*/\\1/"); echo "public_key = $(echo "$priv" | cut -c65-128)" > {{ ygg_proxy_base_dir }}/etc/public'
+ExecStart={{ ygg_proxy_base_dir }}/bin/yggdrasil-proxy -c {{ ygg_proxy_base_dir }}/run/node.toml -l {{ ygg_proxy_loglevel }}{% for f in ygg_proxy_forwards %} --local-tcp {{ f }}{% endfor %}
+
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
